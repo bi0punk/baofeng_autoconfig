@@ -1,25 +1,19 @@
 #!/usr/bin/env python3
-import os
-os.environ.setdefault("CHIRP_TESTENV", "1")
-
-import sys
-sys.path.insert(0, "/usr/lib/python3/dist-packages")
-
 import csv
+import logging
 import math
 import tempfile
 from typing import Optional
 
-from textual.app import App, ComposeResult
+from textual.app import App
 from textual.screen import Screen, ModalScreen
-from textual.containers import Horizontal, Vertical, Container, Center
+from textual.containers import Horizontal, Vertical
 from textual.widgets import (
     Header, Footer, DataTable, Input, Select, Button,
     Label, Static, ProgressBar
 )
 from textual.binding import Binding
 from textual import work
-from textual.coordinate import Coordinate
 
 from chirp import chirp_common, errors
 from chirp.drivers.baofeng_wp970i import UV9R
@@ -27,8 +21,9 @@ from chirp.drivers.baofeng_wp970i import UV9R
 from cli import (
     MAGIC, STIMEOUT, POWER_LEVELS, DEFAULT_PORT, DEFAULT_BACKUP, DEFAULT_CSV,
     DRIVER_DIR, find_port, powercycle_ident, setup_radio, csv_rows,
-    apply_csv_to_radio, collect_radio_channels, format_channel
+    collect_radio_channels, format_channel
 )
+from common import csv_row_to_power
 
 TUI_CSS = """
 Screen {
@@ -457,8 +452,7 @@ class MainScreen(Screen):
             try:
                 ps.dismiss(None)
             except Exception:
-                pass
-        self.push_screen(AlertScreen("Error de Radio", msg))
+                log.debug("Error dismissing progress screen", exc_info=True)
 
     def action_upload(self):
         if not self.app.channels or not self.app.mmap_bytes:
@@ -673,13 +667,7 @@ class MainScreen(Screen):
             mem.skip = "S" if row.get("Skip", "").strip() == "S" else ""
             mem.empty = False
 
-            power_w = float(row.get("Power", 1))
-            target_dbm = 10.0 * math.log10(power_w * 1000.0)
-            best = POWER_LEVELS[0]
-            for pl in POWER_LEVELS:
-                if abs(float(pl) - target_dbm) < abs(float(best) - target_dbm):
-                    best = pl
-            mem.power = best
+            mem.power = csv_row_to_power(row.get("Power", "1"))
 
             self.app.channels[loc] = mem
             imported += 1
@@ -861,7 +849,7 @@ class MainScreen(Screen):
             try:
                 self.push_screen(AlertScreen(f"Errores ({len(errors_list)})", msg))
             except Exception:
-                pass
+                log.debug("Error mostrando pantalla de errores", exc_info=True)
 
     def action_clear_all(self):
         if not self.app.channels:

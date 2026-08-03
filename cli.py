@@ -1,23 +1,30 @@
 #!/usr/bin/env python3
-import os
-os.environ.setdefault("CHIRP_TESTENV", "1")
-
-import sys
-sys.path.insert(0, "/usr/lib/python3/dist-packages")
-
-import csv
-import time
-import math
 import argparse
-import logging
-import serial
+import csv
 import glob
+import logging
+import math
+import os
+import sys
+import time
 
-from chirp import errors, util, chirp_common
+import serial
+
+from chirp import chirp_common, errors
 from chirp.drivers.baofeng_wp970i import UV9R
 from chirp.drivers import baofeng_common as bfc
 
+from common import (
+    POWER_LEVELS,
+    cfg_setup_chirp,
+    csv_row_to_power,
+    open_serial_ok,
+    safe_float,
+)
+
+cfg_setup_chirp()
 logging.basicConfig(level=logging.WARNING, format="%(message)s")
+log = logging.getLogger("cli")
 
 MAGIC = b"\x50\xBB\xFF\x20\x14\x04\x13"
 STIMEOUT = 1.5
@@ -26,19 +33,15 @@ DRIVER_DIR = os.path.dirname(os.path.realpath(__file__))
 DEFAULT_BACKUP = os.path.join(DRIVER_DIR, "img", "uv9r_backup.img")
 DEFAULT_CSV = os.path.join(DRIVER_DIR, "canales.csv")
 
-POWER_LEVELS = [
-    chirp_common.PowerLevel("High", watts=5.00),
-    chirp_common.PowerLevel("Med", watts=3.00),
-    chirp_common.PowerLevel("Low", watts=1.00),
-]
-
 
 def find_port():
     candidates = sorted(glob.glob("/dev/ttyUSB*")
                         + glob.glob("/dev/ttyACM*"))
     for p in candidates:
+        s = open_serial_ok(p)
+        if s is None:
+            continue
         try:
-            s = serial.Serial(port=p, baudrate=9600, timeout=0.3)
             s.write(MAGIC)
             ack = s.read(1)
             s.close()
@@ -47,14 +50,12 @@ def find_port():
             if ack:
                 time.sleep(0.5)
         except Exception:
-            pass
+            log.debug("Error probing %s", p, exc_info=True)
     for p in candidates:
-        try:
-            s = serial.Serial(port=p, baudrate=9600, timeout=0.3)
+        s = open_serial_ok(p)
+        if s is not None:
             s.close()
             return p
-        except Exception:
-            pass
     return None
 
 
@@ -84,7 +85,7 @@ def powercycle_ident(radio):
                     if pipe.read(1) == b"\x06":
                         return ident
         except Exception:
-            pass
+            log.debug("Intento fallido en powercycle_ident", exc_info=True)
         time.sleep(0.05)
 
     raise errors.RadioError("No se recibio respuesta. "
@@ -193,13 +194,7 @@ def apply_csv_to_radio(radio, rows, clear_before=True):
 
         mem.skip = "S" if row.get("Skip", "").strip() == "S" else ""
 
-        power_w = float(row.get("Power", 1))
-        target_dbm = 10.0 * math.log10(power_w * 1000.0)
-        best = POWER_LEVELS[0]
-        for pl in POWER_LEVELS:
-            if abs(float(pl) - target_dbm) < abs(float(best) - target_dbm):
-                best = pl
-        mem.power = best
+        mem.power = csv_row_to_power(row.get("Power", "1"))
 
         radio.set_memory(mem)
 
