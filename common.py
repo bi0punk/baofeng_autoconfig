@@ -4,6 +4,7 @@ import os
 import sys
 
 import serial
+from chirp import chirp_common
 
 log = logging.getLogger(__name__)
 
@@ -34,8 +35,6 @@ def safe_float(value, default=0.0):
     except (ValueError, TypeError):
         return default
 
-
-from chirp import chirp_common
 
 POWER_LEVELS = [
     chirp_common.PowerLevel("High", watts=5.00),

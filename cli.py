@@ -3,30 +3,26 @@ import argparse
 import csv
 import glob
 import logging
-import math
 import os
 import sys
 import time
 
 import serial
-
 from chirp import chirp_common, errors
-from chirp.drivers.baofeng_wp970i import UV9R
 from chirp.drivers import baofeng_common as bfc
+from chirp.drivers.baofeng_wp970i import UV9R
 
 from common import (
-    POWER_LEVELS,
     cfg_setup_chirp,
     csv_row_to_power,
     open_serial_ok,
-    safe_float,
 )
 
 cfg_setup_chirp()
 logging.basicConfig(level=logging.WARNING, format="%(message)s")
 log = logging.getLogger("cli")
 
-MAGIC = b"\x50\xBB\xFF\x20\x14\x04\x13"
+MAGIC = b"\x50\xbb\xff\x20\x14\x04\x13"
 STIMEOUT = 1.5
 DEFAULT_PORT = "/dev/ttyUSB0"
 DRIVER_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -35,8 +31,7 @@ DEFAULT_CSV = os.path.join(DRIVER_DIR, "canales.csv")
 
 
 def find_port():
-    candidates = sorted(glob.glob("/dev/ttyUSB*")
-                        + glob.glob("/dev/ttyACM*"))
+    candidates = sorted(glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*"))
     for p in candidates:
         s = open_serial_ok(p)
         if s is None:
@@ -67,8 +62,7 @@ def powercycle_ident(radio):
 
     bfc._clean_buffer(radio)
 
-    radio.status_fn(chirp_common.Status(
-        cur=0, max=1, msg="Envie magic; ENCIENDA EL RADIO AHORA"))
+    radio.status_fn(chirp_common.Status(cur=0, max=1, msg="Envie magic; ENCIENDA EL RADIO AHORA"))
 
     start = time.time()
     while time.time() - start < 12:
@@ -80,7 +74,7 @@ def powercycle_ident(radio):
                 pipe.timeout = STIMEOUT
                 ident = pipe.read(8)
                 pipe.timeout = 0.2
-                if len(ident) == 8 and ident[0] == 0xaa and ident[-1] == 0xdd:
+                if len(ident) == 8 and ident[0] == 0xAA and ident[-1] == 0xDD:
                     pipe.write(b"\x06")
                     if pipe.read(1) == b"\x06":
                         return ident
@@ -88,8 +82,7 @@ def powercycle_ident(radio):
             log.debug("Intento fallido en powercycle_ident", exc_info=True)
         time.sleep(0.05)
 
-    raise errors.RadioError("No se recibio respuesta. "
-                            "Asegurese de encender el radio cuando se indique.")
+    raise errors.RadioError("No se recibio respuesta. Asegurese de encender el radio cuando se indique.")
 
 
 def progress_status(status):
@@ -114,7 +107,7 @@ def setup_radio(port):
 
 
 def csv_rows(path):
-    with open(path, "r", encoding="utf-8-sig") as f:
+    with open(path, encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
         rows = []
         for row in reader:
@@ -218,14 +211,12 @@ def format_channel(mem):
     name = mem.name.strip() if mem.name else ""
     name = name + " " * max(0, 9 - len(name))
     dup = mem.duplex if mem.duplex else "simplex"
-    off = mem.offset / 1e6 if mem.offset else 0
     ct = f"t={mem.ctone}" if mem.ctone else ""
     rt = f"r={mem.rtone}" if mem.rtone and mem.rtone != mem.ctone else ""
     tone_info = f"{rt} {ct}".strip()
     power = str(mem.power) if mem.power else ""
     skip = "S" if mem.skip == "S" else ""
-    return (f"  {mem.number:3d}  {freq:8.4f}  {name}  {dup:7s}  "
-            f"{tone_info:12s}  {power:4s}  {skip}")
+    return f"  {mem.number:3d}  {freq:8.4f}  {name}  {dup:7s}  {tone_info:12s}  {power:4s}  {skip}"
 
 
 def cmd_download(args):
@@ -236,8 +227,7 @@ def cmd_download(args):
         radio.save_mmap(out)
         ch = collect_radio_channels(radio)
         non_empty = sum(1 for m in ch if not m.empty)
-        print(f"Descargado: {out} ({len(radio.get_mmap())} bytes, "
-              f"{non_empty} canales)")
+        print(f"Descargado: {out} ({len(radio.get_mmap())} bytes, {non_empty} canales)")
     finally:
         ser.close()
 
@@ -265,8 +255,7 @@ def cmd_list(args):
         finally:
             ser.close()
 
-    print(f"{'CH':3s}  {'Frecuencia':9s}  {'Nombre':9s}  {'Modo':7s}  "
-          f"{'Tono':12s}  {'Pot':4s}  {'Skip':4s}")
+    print(f"{'CH':3s}  {'Frecuencia':9s}  {'Nombre':9s}  {'Modo':7s}  {'Tono':12s}  {'Pot':4s}  {'Skip':4s}")
     print("-" * 60)
     non_empty = 0
     for mem in ch:
@@ -300,14 +289,12 @@ def cmd_verify(args):
             exp_freq = float(row.get("Frequency", 0))
             act_freq = mem.freq / 1e6
             if abs(act_freq - exp_freq) > 0.001:
-                print(f"  ERROR CH{loc}: frecuencia "
-                      f"{act_freq:.4f} != esperada {exp_freq:.4f}")
+                print(f"  ERROR CH{loc}: frecuencia {act_freq:.4f} != esperada {exp_freq:.4f}")
                 errors_found += 1
             exp_name = row.get("Name", "").strip()
             act_name = mem.name.strip()
             if act_name != exp_name:
-                print(f"  ERROR CH{loc}: nombre '{act_name}' != "
-                      f"esperado '{exp_name}'")
+                print(f"  ERROR CH{loc}: nombre '{act_name}' != esperado '{exp_name}'")
                 errors_found += 1
         if errors_found == 0:
             print(f"VERIFICACION OK: {checked} canales coinciden con el CSV")
@@ -323,10 +310,7 @@ def cmd_csv2img(args):
     out_path = args.output
     rows = csv_rows(csv_path)
 
-    if img_path:
-        radio = UV9R(img_path)
-    else:
-        radio = UV9R(DEFAULT_BACKUP)
+    radio = UV9R(img_path if img_path else DEFAULT_BACKUP)
 
     count = apply_csv_to_radio(radio, rows)
     if out_path:
@@ -344,8 +328,7 @@ def cmd_identify(args):
 
 
 def cmd_list_ports(args):
-    ports = sorted(glob.glob("/dev/ttyUSB*")
-                   + glob.glob("/dev/ttyACM*"))
+    ports = sorted(glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*"))
     if not ports:
         print("No se encontraron puertos serie USB")
         return
@@ -364,6 +347,7 @@ def cmd_list_ports(args):
 def main():
     if len(sys.argv) == 1:
         from tui import run_tui
+
         run_tui()
         return
 
@@ -378,37 +362,29 @@ def main():
   %(prog)s list --img uv9r_backup.img
   %(prog)s verify
   %(prog)s csv2img --csv freqs.csv --img uv9r_backup.img -o salida.img
-""")
+""",
+    )
 
-    parser.add_argument("--port", default=None,
-                        help="Puerto serie (default: auto-detect)")
+    parser.add_argument("--port", default=None, help="Puerto serie (default: auto-detect)")
 
     sub = parser.add_subparsers(dest="command")
 
     p_down = sub.add_parser("download", help="Descargar canales del radio")
-    p_down.add_argument("--img", default=None,
-                        help="Archivo .img de salida")
+    p_down.add_argument("--img", default=None, help="Archivo .img de salida")
 
     p_up = sub.add_parser("upload", help="Subir canales al radio")
-    p_up.add_argument("--img", default=None,
-                      help="Archivo .img de entrada")
+    p_up.add_argument("--img", default=None, help="Archivo .img de entrada")
 
     p_list = sub.add_parser("list", help="Listar canales")
-    p_list.add_argument("--img", default=None,
-                        help="Listar desde archivo (no requiere radio)")
+    p_list.add_argument("--img", default=None, help="Listar desde archivo (no requiere radio)")
 
     p_ver = sub.add_parser("verify", help="Verificar canales vs CSV")
-    p_ver.add_argument("--csv", default=None,
-                       help="Archivo CSV de referencia")
+    p_ver.add_argument("--csv", default=None, help="Archivo CSV de referencia")
 
-    p_c2i = sub.add_parser("csv2img",
-                           help="Convertir CSV a imagen CHIRP")
-    p_c2i.add_argument("--csv", default=DEFAULT_CSV,
-                       help="Archivo CSV de entrada")
-    p_c2i.add_argument("--img", default=None,
-                       help="Imagen base (default: backup existente)")
-    p_c2i.add_argument("-o", "--output", default="uv9r_output.img",
-                       help="Archivo .img de salida")
+    p_c2i = sub.add_parser("csv2img", help="Convertir CSV a imagen CHIRP")
+    p_c2i.add_argument("--csv", default=DEFAULT_CSV, help="Archivo CSV de entrada")
+    p_c2i.add_argument("--img", default=None, help="Imagen base (default: backup existente)")
+    p_c2i.add_argument("-o", "--output", default="uv9r_output.img", help="Archivo .img de salida")
 
     sub.add_parser("identify", help="Identificar radio (test de conexion)")
     sub.add_parser("list-ports", help="Listar puertos serie disponibles")
@@ -427,8 +403,7 @@ def main():
         if not port:
             port = find_port()
             if not port:
-                print("Error: no se encontro puerto serie. "
-                      "Use --port o conecte el cable.")
+                print("Error: no se encontro puerto serie. Use --port o conecte el cable.")
                 sys.exit(1)
             print(f"Puerto detectado: {port}")
         args.port = port

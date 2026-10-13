@@ -1,6 +1,5 @@
-import pytest
-import sys
 import os
+import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from common import csv_row_to_power, safe_float

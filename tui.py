@@ -1,29 +1,22 @@
 #!/usr/bin/env python3
 import csv
 import logging
-import math
+import os
 import tempfile
-from typing import Optional
 
-from textual.app import App
-from textual.screen import Screen, ModalScreen
-from textual.containers import Horizontal, Vertical
-from textual.widgets import (
-    Header, Footer, DataTable, Input, Select, Button,
-    Label, Static, ProgressBar
-)
-from textual.binding import Binding
-from textual import work
-
-from chirp import chirp_common, errors
+from chirp import chirp_common
 from chirp.drivers.baofeng_wp970i import UV9R
+from textual import work
+from textual.app import App
+from textual.binding import Binding
+from textual.containers import Horizontal, Vertical
+from textual.screen import ModalScreen, Screen
+from textual.widgets import Button, DataTable, Footer, Header, Input, Label, ProgressBar, Select
 
-from cli import (
-    MAGIC, STIMEOUT, POWER_LEVELS, DEFAULT_PORT, DEFAULT_BACKUP, DEFAULT_CSV,
-    DRIVER_DIR, find_port, powercycle_ident, setup_radio, csv_rows,
-    collect_radio_channels, format_channel
-)
-from common import csv_row_to_power
+from cli import DEFAULT_BACKUP, DEFAULT_CSV, DRIVER_DIR, collect_radio_channels, csv_rows, find_port, setup_radio
+from common import POWER_LEVELS, csv_row_to_power
+
+log = logging.getLogger(__name__)
 
 TUI_CSS = """
 Screen {
@@ -151,7 +144,7 @@ class AlertScreen(ModalScreen[None]):
         self.dismiss(None)
 
 
-class InputScreen(ModalScreen[Optional[str]]):
+class InputScreen(ModalScreen[str | None]):
     def __init__(self, title: str, label: str, value: str = ""):
         super().__init__()
         self._title = title
@@ -175,12 +168,9 @@ class InputScreen(ModalScreen[Optional[str]]):
             self.dismiss(None)
 
 
-class EditChannel(ModalScreen[Optional[dict]]):
+class EditChannel(ModalScreen[dict | None]):
     DUPLEX_OPTS = [("Simple", ""), ("+", "+"), ("-", "-"), ("Split", "split")]
-    TONE_OPTS = [
-        ("Off", ""), ("Tone (TX)", "Tone"),
-        ("TSQL (RX)", "TSQL"), ("DTCS", "DTCS"), ("Cross", "Cross")
-    ]
+    TONE_OPTS = [("Off", ""), ("Tone (TX)", "Tone"), ("TSQL (RX)", "TSQL"), ("DTCS", "DTCS"), ("Cross", "Cross")]
     MODE_OPTS = [("FM", "FM"), ("NFM", "NFM")]
     POWER_OPTS = [("High (5W)", "High"), ("Med (3W)", "Med"), ("Low (1W)", "Low")]
     SKIP_OPTS = [("No", ""), ("Si", "S")]
@@ -189,7 +179,7 @@ class EditChannel(ModalScreen[Optional[dict]]):
         super().__init__()
         self.mem = channel
         self.ch_number = channel.number
-        self.result: Optional[dict] = None
+        self.result: dict | None = None
 
     def compose(self):
         m = self.mem
@@ -235,7 +225,7 @@ class EditChannel(ModalScreen[Optional[dict]]):
                 try:
                     d["freq"] = float(freq_str) * 1_000_000
                 except ValueError:
-                    raise ValueError("Frecuencia invalida")
+                    raise ValueError("Frecuencia invalida") from None
 
                 d["duplex"] = self.query_one("#duplex", Select).value or ""
 
@@ -243,7 +233,7 @@ class EditChannel(ModalScreen[Optional[dict]]):
                 try:
                     d["offset"] = float(off_str) * 1_000_000 if off_str else 0
                 except ValueError:
-                    raise ValueError("Offset invalido")
+                    raise ValueError("Offset invalido") from None
 
                 d["tmode"] = self.query_one("#tmode", Select).value or ""
 
@@ -251,7 +241,7 @@ class EditChannel(ModalScreen[Optional[dict]]):
                 try:
                     d["tonefreq"] = float(tf) if tf else 88.5
                 except ValueError:
-                    raise ValueError("Tono CTCSS invalido")
+                    raise ValueError("Tono CTCSS invalido") from None
 
                 d["mode"] = self.query_one("#mode", Select).value or "FM"
                 d["power_label"] = self.query_one("#power", Select).value or "Low"
@@ -336,7 +326,7 @@ class MainScreen(Screen):
                 app.dirty = False
                 self._rebuild_table()
             except Exception:
-                pass
+                pass  # nosec B110 - carga best-effort de imagen por defecto
 
     def _rebuild_table(self):
         table = self.query_one("#dt", DataTable)
@@ -392,10 +382,7 @@ class MainScreen(Screen):
 
     def action_download(self):
         if self.app.dirty:
-            self.push_screen(
-                ConfirmScreen("Confirmar", "Hay cambios sin guardar. Descargar igual?"),
-                self._do_download
-            )
+            self.push_screen(ConfirmScreen("Confirmar", "Hay cambios sin guardar. Descargar igual?"), self._do_download)
         else:
             self._do_download(True)
 
@@ -429,7 +416,7 @@ class MainScreen(Screen):
             self.call_from_thread(self._radio_error, str(e))
 
     def _update_progress(self, cur, max_val, msg):
-        ps = getattr(self, '_prog_screen', None)
+        ps = getattr(self, "_prog_screen", None)
         if ps:
             ps.update(cur, max_val, msg)
 
@@ -441,12 +428,10 @@ class MainScreen(Screen):
         self.app.dirty = False
         self._rebuild_table()
         self.pop_screen()
-        self.push_screen(
-            AlertScreen("Completado", "Descarga desde el radio exitosa")
-        )
+        self.push_screen(AlertScreen("Completado", "Descarga desde el radio exitosa"))
 
     def _radio_error(self, msg):
-        ps = getattr(self, '_prog_screen', None)
+        ps = getattr(self, "_prog_screen", None)
         if ps:
             self._prog_screen = None
             try:
@@ -464,8 +449,7 @@ class MainScreen(Screen):
             self.push_screen(AlertScreen("Error", "No se detecta el radio."))
             return
         self.push_screen(
-            ConfirmScreen("Confirmar", "Subir datos al radio? Se sobrescribiran los datos actuales."),
-            self._do_upload
+            ConfirmScreen("Confirmar", "Subir datos al radio? Se sobrescribiran los datos actuales."), self._do_upload
         )
 
     def _do_upload(self, confirmed):
@@ -478,12 +462,9 @@ class MainScreen(Screen):
     @work(thread=True, exclusive=True)
     def _run_upload(self):
         try:
-            tmp = tempfile.NamedTemporaryFile(suffix=".img", delete=False)
-            try:
+            with tempfile.NamedTemporaryFile(suffix=".img", delete=False) as tmp:
                 tmp.write(self.app.mmap_bytes)
                 fname = tmp.name
-            finally:
-                tmp.close()
 
             radio, ser = setup_radio(self.app.port)
 
@@ -605,8 +586,7 @@ class MainScreen(Screen):
             return
         name = mem.name.strip() or f"CH{ch_idx}"
         self.push_screen(
-            ConfirmScreen("Borrar", f"Borrar canal {ch_idx} ({name})?"),
-            lambda ok, idx=ch_idx: self._do_delete(ok, idx)
+            ConfirmScreen("Borrar", f"Borrar canal {ch_idx} ({name})?"), lambda ok, idx=ch_idx: self._do_delete(ok, idx)
         )
 
     def _do_delete(self, confirmed, ch_idx):
@@ -620,11 +600,7 @@ class MainScreen(Screen):
         self._rebuild_table()
 
     def action_import_csv(self):
-        self.push_screen(
-            InputScreen("Importar CSV", "Ruta del CSV:",
-                        value=DEFAULT_CSV),
-            self._do_import_csv
-        )
+        self.push_screen(InputScreen("Importar CSV", "Ruta del CSV:", value=DEFAULT_CSV), self._do_import_csv)
 
     def _do_import_csv(self, path):
         if not path:
@@ -683,9 +659,8 @@ class MainScreen(Screen):
             self.push_screen(AlertScreen("Error", "No hay canales para exportar"))
             return
         self.push_screen(
-            InputScreen("Exportar CSV", "Ruta de salida:",
-                        value=os.path.join(DRIVER_DIR, "export.csv")),
-            self._do_export_csv
+            InputScreen("Exportar CSV", "Ruta de salida:", value=os.path.join(DRIVER_DIR, "export.csv")),
+            self._do_export_csv,
         )
 
     def _do_export_csv(self, path):
@@ -695,29 +670,43 @@ class MainScreen(Screen):
         try:
             with open(path, "w", newline="", encoding="utf-8") as f:
                 w = csv.writer(f)
-                w.writerow(["Location", "Name", "Frequency", "Duplex", "Offset",
-                           "Tone", "rToneFreq", "cToneFreq", "Mode", "Power", "Skip"])
+                w.writerow(
+                    [
+                        "Location",
+                        "Name",
+                        "Frequency",
+                        "Duplex",
+                        "Offset",
+                        "Tone",
+                        "rToneFreq",
+                        "cToneFreq",
+                        "Mode",
+                        "Power",
+                        "Skip",
+                    ]
+                )
                 for m in non_empty:
-                    w.writerow([
-                        m.number, m.name, f"{m.freq / 1e6:.4f}",
-                        m.duplex if m.duplex else "",
-                        f"{m.offset / 1e6:.4f}",
-                        m.tmode or "",
-                        m.rtone if m.rtone > 0 else "",
-                        m.ctone if m.ctone > 0 else "",
-                        m.mode,
-                        f"{float(m.power):.2f}" if m.power else "",
-                        "S" if m.skip == "S" else "",
-                    ])
+                    w.writerow(
+                        [
+                            m.number,
+                            m.name,
+                            f"{m.freq / 1e6:.4f}",
+                            m.duplex if m.duplex else "",
+                            f"{m.offset / 1e6:.4f}",
+                            m.tmode or "",
+                            m.rtone if m.rtone > 0 else "",
+                            m.ctone if m.ctone > 0 else "",
+                            m.mode,
+                            f"{float(m.power):.2f}" if m.power else "",
+                            "S" if m.skip == "S" else "",
+                        ]
+                    )
             self.push_screen(AlertScreen("Exportado", f"{len(non_empty)} canales exportados a {path}"))
         except Exception as e:
             self.push_screen(AlertScreen("Error", f"No se pudo exportar: {e}"))
 
     def action_open_img(self):
-        self.push_screen(
-            InputScreen("Abrir .img", "Ruta del archivo .img:", value=DEFAULT_BACKUP),
-            self._do_open_img
-        )
+        self.push_screen(InputScreen("Abrir .img", "Ruta del archivo .img:", value=DEFAULT_BACKUP), self._do_open_img)
 
     def _do_open_img(self, path):
         if not path:
@@ -741,21 +730,17 @@ class MainScreen(Screen):
             self.push_screen(AlertScreen("Error", "No hay datos para guardar"))
             return
         self.push_screen(
-            InputScreen("Guardar .img", "Ruta de salida:",
-                        value=os.path.join(DRIVER_DIR, "uv9r_editado.img")),
-            self._do_save_img
+            InputScreen("Guardar .img", "Ruta de salida:", value=os.path.join(DRIVER_DIR, "uv9r_editado.img")),
+            self._do_save_img,
         )
 
     def _do_save_img(self, path):
         if not path:
             return
         try:
-            tmp = tempfile.NamedTemporaryFile(suffix=".img", delete=False)
-            try:
+            with tempfile.NamedTemporaryFile(suffix=".img", delete=False) as tmp:
                 tmp.write(self.app.mmap_bytes)
                 fname = tmp.name
-            finally:
-                tmp.close()
 
             radio = UV9R(fname)
             for mem in self.app.channels:
@@ -777,11 +762,7 @@ class MainScreen(Screen):
         if not self.app.port:
             self.push_screen(AlertScreen("Error", "No se detecta el radio."))
             return
-        self.push_screen(
-            InputScreen("Verificar", "Ruta del CSV de referencia:",
-                        value=DEFAULT_CSV),
-            self._do_verify
-        )
+        self.push_screen(InputScreen("Verificar", "Ruta del CSV de referencia:", value=DEFAULT_CSV), self._do_verify)
 
     def _do_verify(self, csv_path):
         if not csv_path:
@@ -857,15 +838,12 @@ class MainScreen(Screen):
         n = sum(1 for m in self.app.channels if not m.empty)
         if n == 0:
             return
-        self.push_screen(
-            ConfirmScreen("Limpiar", f"Borrar todos los {n} canales?"),
-            self._do_clear_all
-        )
+        self.push_screen(ConfirmScreen("Limpiar", f"Borrar todos los {n} canales?"), self._do_clear_all)
 
     def _do_clear_all(self, confirmed):
         if not confirmed:
             return
-        for i, m in enumerate(self.app.channels):
+        for _, m in enumerate(self.app.channels):
             m.empty = True
             m.name = ""
         self.app.dirty = True
@@ -884,8 +862,8 @@ class BaofengApp(App):
     def __init__(self):
         super().__init__()
         self.channels: list = []
-        self.mmap_bytes: Optional[bytes] = None
-        self.port: Optional[str] = None
+        self.mmap_bytes: bytes | None = None
+        self.port: str | None = None
         self.source: str = ""
         self.dirty: bool = False
 
