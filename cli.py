@@ -30,6 +30,11 @@ DEFAULT_BACKUP = os.path.join(DRIVER_DIR, "img", "uv9r_backup.img")
 DEFAULT_CSV = os.path.join(DRIVER_DIR, "canales.csv")
 
 
+def ensure_parent_dir(path):
+    parent = os.path.dirname(os.path.abspath(path))
+    os.makedirs(parent, exist_ok=True)
+
+
 def find_port():
     candidates = sorted(glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*"))
     for p in candidates:
@@ -224,6 +229,7 @@ def cmd_download(args):
     try:
         radio.sync_in()
         out = args.img or DEFAULT_BACKUP
+        ensure_parent_dir(out)
         radio.save_mmap(out)
         ch = collect_radio_channels(radio)
         non_empty = sum(1 for m in ch if not m.empty)
@@ -314,6 +320,7 @@ def cmd_csv2img(args):
 
     count = apply_csv_to_radio(radio, rows)
     if out_path:
+        ensure_parent_dir(out_path)
         radio.save_mmap(out_path)
         print(f"Imagen creada: {out_path} ({count} canales del CSV aplicados)")
 

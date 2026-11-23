@@ -24,11 +24,11 @@ Programador CLI y TUI para radios Baofeng UV-9R usando los drivers CHIRP. Permit
 - Auto-detección del puerto serie probando el "magic" en `/dev/ttyUSB*` y `/dev/ttyACM*`.
 - Power-cycling asistido para entrar la radio en modo programación (se indica cuándo encenderla).
 - Descarga de canales desde la radio a imagen `.img`.
-- Subida de canales desde imagen `.img` o CSV a la radio.
+- Subida de canales desde imagen `.img` a la radio (un CSV se convierte antes con `csv2img`).
 - Listado de canales desde la radio o desde un archivo `.img`.
 - Verificación de los canales de la radio contra un CSV de referencia.
 - Conversión CSV -> imagen CHIRP (`csv2img`).
-- Respaldo implícito: la imagen base se guarda en `img/uv9r_backup.img`.
+- Respaldo implícito: la primera descarga se guarda en `img/uv9r_backup.img`.
 - Barra de progreso en tiempo real durante las operaciones.
 
 ## Arquitectura
@@ -67,7 +67,8 @@ baofeng_autoconfig/
 ├── common.py           # Utilidades compartidas (puerto, CSV, power levels)
 ├── canales.csv         # CSV de ejemplo con canales
 ├── img/
-│   └── uv9r_backup.img # Imagen base de respaldo
+│   ├── .gitkeep        # conserva el directorio en git
+│   └── uv9r_backup.img # Imagen base de respaldo (generada por download, ignorada por git)
 ├── tests/
 │   └── test_common.py
 ├── requirements.txt
@@ -112,9 +113,11 @@ python cli.py list --img img/uv9r_backup.img
 # Verificar canales de la radio contra un CSV
 python cli.py verify --csv canales.csv
 
-# Convertir CSV a imagen CHIRP
-python cli.py csv2img --csv canales.csv -o salida.img
+# Convertir CSV a imagen CHIRP (requiere una imagen base existente)
+python cli.py csv2img --csv canales.csv --img img/uv9r_backup.img -o salida.img
 ```
+
+`upload` solo acepta imágenes `.img` mediante `--img`; no lee CSV directamente. Para subir un CSV, conviértelo primero con `csv2img`. `csv2img` y `upload` usan `img/uv9r_backup.img` como imagen base por defecto, así que ejecuta `download` al menos una vez o pasa `--img` con una imagen existente.
 
 El puerto se auto-detecta; se puede forzar con `--port`:
 
@@ -132,25 +135,14 @@ Las teclas de acción permiten descargar, subir, importar/exportar CSV, editar y
 
 ## Formato CSV
 
+El CSV usa el formato de CHIRP, con 21 columnas. La referencia completa es [`canales.csv`](canales.csv), cuya cabecera es:
+
 ```csv
-Location,Name,Frequency,Duplex,Offset,Tone,rToneFreq,cToneFreq,Mode,Power,Skip
-1,Radio Uno,145.500,,0.6,,88.5,88.5,FM,5,
-2,Radio Dos,146.000,-,0.6,Tone,88.5,88.5,FM,1,
+Location,Name,Frequency,Duplex,Offset,Tone,rToneFreq,cToneFreq,DtcsCode,DtcsPolarity,RxDtcsCode,CrossMode,Mode,TStep,Skip,Power,Comment,URCALL,RPT1CALL,RPT2CALL,DVCODE
+0,MAR16,156.800000,off,0.000000,,88.5,88.5,023,NN,023,Tone->Tone,FM,25.00,,1,"Canal maritimo 16: socorro, seguridad y llamada. SOLO RX.",,,,
 ```
 
-| Columna | Descripción | Valores |
-|---------|-------------|--------|
-| Location | Número de canal (1-128) | Entero |
-| Name | Nombre del canal | Texto |
-| Frequency | Frecuencia en MHz | Float |
-| Duplex | Modo duplex | `""`, `-`, `+`, `split` |
-| Offset | Offset en MHz | Float |
-| Tone | Modo de tono | `""`, `Tone`, `TSQL`, `DTCS`, `Cross` |
-| rToneFreq | Frecuencia RX CTCSS | Float (ej: 88.5) |
-| cToneFreq | Frecuencia TX CTCSS | Float |
-| Mode | Modulación | `FM`, `NFM` |
-| Power | Potencia en watts | `1`, `3`, `5` |
-| Skip | Saltar canal | `""` o `S` |
+Al aplicar el CSV a la radio (`csv2img`), `apply_csv_to_radio` usa `Location`, `Name`, `Frequency`, `Duplex`, `Offset`, `Tone`, `rToneFreq`, `cToneFreq`, `DtcsCode`, `DtcsPolarity`, `RxDtcsCode`, `CrossMode`, `Mode`, `Skip` y `Power`; las demás columnas (`TStep`, `Comment`, llamadas y DV) no se aplican al programar.
 
 ## Tests
 
